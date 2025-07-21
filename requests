@@ -1,0 +1,124 @@
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
+def check_xss_injection(url):
+    """
+    Test for reflected XSS by injecting a harmless script payload.
+    """
+    payload = "<script>alert('XSS')</script>"
+    test_url = url + "?q=" + payload
+    try:
+        response = requests.get(test_url, timeout=10)
+        if payload in response.text:
+            return True
+    except Exception as e:
+        print("  [!] Error during XSS test:", e)
+    return False
+
+def check_clickjacking(url):
+    """
+    Check if the site is vulnerable to clickjacking by checking the X-Frame-Options header.
+    """
+    try:
+        response = requests.get(url, timeout=10)
+        return 'X-Frame-Options' not in response.headers
+    except Exception as e:
+        print("  [!] Error during clickjacking check:", e)
+        return False
+
+def check_directory_listing(url):
+    """
+    Check if directory listing is enabled by searching for 'Index of /' in the response.
+    """
+    try:
+        response = requests.get(url, timeout=10)
+        return "Index of /" in response.text
+    except Exception as e:
+        print("  [!] Error during directory listing check:", e)
+        return False
+
+def check_insecure_forms(url):
+    """
+    Find all form tags and check if any form action uses HTTP instead of HTTPS.
+    """
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        forms = soup.find_all('form')
+        insecure = []
+        for form in forms:
+            action = form.get('action')
+            if action and action.startswith("http://"):
+                insecure.append(urljoin(url, action))
+        return insecure
+    except Exception as e:
+        print("  [!] Error during insecure forms check:", e)
+        return []
+
+def check_missing_headers(url):
+    """
+    Check for the presence of common security headers.
+    """
+    try:
+        response = requests.get(url, timeout=10)
+        expected = [
+            "Content-Security-Policy",
+            "X-Frame-Options",
+            "X-XSS-Protection",
+            "Strict-Transport-Security",
+            "X-Content-Type-Options"
+        ]
+        missing = [header for header in expected if header not in response.headers]
+        return missing
+    except Exception as e:
+        print("  [!] Error during header check:", e)
+        return []
+
+def main():
+    print("=== Simple Web Vulnerability Scanner ===")
+    target = input("Enter target URL (e.g. https://example.com): ").strip()
+
+    if not target.startswith("http"):
+        target = "http://" + target
+
+    print(f"\n Scanning: {target}\n")
+
+    # Check for Reflected XSS
+    if check_xss_injection(target):
+        print("  Potential Reflected XSS vulnerability detected!")
+    else:
+        print(" No reflected XSS found.")
+
+    # Check for Clickjacking
+    if check_clickjacking(target):
+        print("  Clickjacking protection missing!")
+    else:
+        print(" Clickjacking protection is present.")
+
+    # Check for Directory Listing
+    if check_directory_listing(target):
+        print("  Directory listing is enabled!")
+    else:
+        print(" Directory listing is not enabled.")
+
+    # Check for Insecure Forms
+    forms = check_insecure_forms(target)
+    if forms:
+        print(" Insecure form actions detected:")
+        for form_url in forms:
+            print("   🔗", form_url)
+    else:
+        print(" No insecure forms found.")
+
+    # Check for Missing Security Headers
+    missing = check_missing_headers(target)
+    if missing:
+        print("⚠  Missing security headers:")
+        for header in missing:
+            print("   🔧", header)
+    else:
+        print(" All recommended security headers are present.")
+
+if __name__ == "__main__":
+    main()
